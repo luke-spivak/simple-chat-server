@@ -11,6 +11,7 @@
 #define MAX_SCREEN_NAME_LEN 32
 #define MAX_STATUS_LEN 64
 #define CLIENT_INPUT_CAPACITY 4096
+#define MAX_BODY_LENGTH_FIELD 99999
 
 typedef struct {
     int fd;
@@ -20,6 +21,19 @@ typedef struct {
     char input_buffer[CLIENT_INPUT_CAPACITY];
     size_t input_len;
 } client_t;
+
+typedef struct {
+    unsigned int version;
+    char code[4];
+    unsigned int body_len;
+    size_t header_len;
+} protocol_header_t;
+
+enum {
+    HEADER_PARSE_INVALID = -1,
+    HEADER_PARSE_INCOMPLETE = 0,
+    HEADER_PARSE_COMPLETE = 1
+};
 
 /**
  * Parse a CLI port string into a validated TCP port number.
@@ -265,6 +279,103 @@ static int register_client(
 }
 
 /**
+ * Parse an unsigned decimal ASCII field from a bounded byte span.
+ *
+ * @param field Raw field bytes (not necessarily NUL-terminated).
+ * @param field_len Number of bytes in the field.
+ * @param max_value Maximum permitted value.
+ * @param out_value Parsed value on success.
+ * @return 0 on success, -1 on invalid/non-decimal/out-of-range input.
+ */
+static int parse_decimal_field(
+    const char *field, size_t field_len, unsigned int max_value, unsigned int *out_value
+) {
+    size_t i;
+    unsigned int value;
+    unsigned int digit;
+
+    if (field_len == 0) {
+        return -1;
+    }
+
+    value = 0;
+    for (i = 0; i < field_len; i++) {
+        if (field[i] < '0' || field[i] > '9') {
+            return -1;
+        }
+
+        digit = (unsigned int)(field[i] - '0');
+        if (value > (max_value - digit) / 10U) {
+            return -1;
+        }
+        value = value * 10U + digit;
+    }
+
+    *out_value = value;
+    return 0;
+}
+
+/**
+ * Parse the protocol header fields (version|code|length|) from buffered input.
+ *
+ * @param client Client whose input buffer is inspected.
+ * @param out_header Parsed header values on complete success.
+ * @return HEADER_PARSE_COMPLETE if all three header fields are available and valid,
+ *         HEADER_PARSE_INCOMPLETE if more bytes are needed,
+ *         HEADER_PARSE_INVALID if available bytes violate header syntax.
+ */
+static int parse_protocol_header(const client_t *client, protocol_header_t *out_header) {
+    const char *cursor;
+    const char *sep;
+    size_t remaining;
+    size_t field_len;
+
+    cursor = client->input_buffer;
+    remaining = client->input_len;
+
+    sep = memchr(cursor, '|', remaining);
+    if (sep == NULL) {
+        return HEADER_PARSE_INCOMPLETE;
+    }
+    field_len = (size_t)(sep - cursor);
+    if (parse_decimal_field(cursor, field_len, UINT_MAX, &out_header->version) != 0) {
+        return HEADER_PARSE_INVALID;
+    }
+
+    remaining -= field_len + 1;
+    cursor = sep + 1;
+
+    sep = memchr(cursor, '|', remaining);
+    if (sep == NULL) {
+        return HEADER_PARSE_INCOMPLETE;
+    }
+    field_len = (size_t)(sep - cursor);
+    if (field_len != 3) {
+        return HEADER_PARSE_INVALID;
+    }
+    memcpy(out_header->code, cursor, 3);
+    out_header->code[3] = '\0';
+
+    remaining -= field_len + 1;
+    cursor = sep + 1;
+
+    sep = memchr(cursor, '|', remaining);
+    if (sep == NULL) {
+        return HEADER_PARSE_INCOMPLETE;
+    }
+    field_len = (size_t)(sep - cursor);
+    if (field_len == 0 || field_len > 5) {
+        return HEADER_PARSE_INVALID;
+    }
+    if (parse_decimal_field(cursor, field_len, MAX_BODY_LENGTH_FIELD, &out_header->body_len) != 0) {
+        return HEADER_PARSE_INVALID;
+    }
+
+    out_header->header_len = (size_t)(sep - client->input_buffer) + 1;
+    return HEADER_PARSE_COMPLETE;
+}
+
+/**
  * Read available bytes from a client socket into its input buffer.
  *
  * @param client Client record to update.
@@ -320,6 +431,8 @@ static int run_poll_loop(int listen_fd) {
     socklen_t client_len;
     client_t *client;
     int read_result;
+    protocol_header_t header;
+    int header_parse_result;
 
     pfds = NULL;
     clients = NULL;
@@ -404,6 +517,19 @@ static int run_poll_loop(int listen_fd) {
                     remove_client(clients, &client_count, i - 1);
                     remove_client_fd(pfds, &count, i);
                     i -= 1;
+                    continue;
+                }
+
+                header_parse_result = parse_protocol_header(client, &header);
+                if (header_parse_result == HEADER_PARSE_INVALID) {
+                    remove_client(clients, &client_count, i - 1);
+                    remove_client_fd(pfds, &count, i);
+                    i -= 1;
+                    continue;
+                }
+                if (header_parse_result == HEADER_PARSE_COMPLETE) {
+                    /* Step 9 only parses header fields; frame handling is added next. */
+                    (void)header;
                 }
             }
         }

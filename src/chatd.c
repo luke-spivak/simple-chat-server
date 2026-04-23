@@ -76,39 +76,153 @@ static int setup_listen_socket(unsigned short port) {
 }
 
 /**
+ * Ensure the pollfd array has room for at least one more entry.
+ *
+ * @param pfds Pointer to the pollfd array pointer.
+ * @param cap Pointer to current array capacity.
+ * @param needed Minimum required capacity.
+ * @return 0 on success, -1 on allocation failure.
+ */
+static int ensure_poll_capacity(struct pollfd **pfds, nfds_t *cap, nfds_t needed) {
+    nfds_t new_cap;
+    struct pollfd *new_pfds;
+
+    if (*cap >= needed) {
+        return 0;
+    }
+
+    new_cap = (*cap == 0) ? 8 : (*cap * 2);
+    while (new_cap < needed) {
+        new_cap *= 2;
+    }
+
+    new_pfds = realloc(*pfds, new_cap * sizeof(*new_pfds));
+    if (new_pfds == NULL) {
+        return -1;
+    }
+
+    *pfds = new_pfds;
+    *cap = new_cap;
+    return 0;
+}
+
+/**
+ * Add a file descriptor to the poll set.
+ *
+ * @param pfds Pointer to the pollfd array pointer.
+ * @param count Pointer to number of active pollfd entries.
+ * @param cap Pointer to pollfd array capacity.
+ * @param fd File descriptor to add.
+ * @param events Poll events to monitor.
+ * @return 0 on success, -1 on allocation failure.
+ */
+static int add_poll_fd(struct pollfd **pfds, nfds_t *count, nfds_t *cap, int fd, short events) {
+    if (ensure_poll_capacity(pfds, cap, *count + 1) != 0) {
+        return -1;
+    }
+
+    (*pfds)[*count].fd = fd;
+    (*pfds)[*count].events = events;
+    (*pfds)[*count].revents = 0;
+    *count += 1;
+    return 0;
+}
+
+/**
+ * Remove a client file descriptor from the poll set and close it.
+ *
+ * @param pfds Pollfd array.
+ * @param count Pointer to number of active pollfd entries.
+ * @param idx Index to remove.
+ */
+static void remove_client_fd(struct pollfd *pfds, nfds_t *count, nfds_t idx) {
+    nfds_t i;
+
+    close(pfds[idx].fd);
+    for (i = idx; i + 1 < *count; i++) {
+        pfds[i] = pfds[i + 1];
+    }
+    *count -= 1;
+}
+
+/**
  * Run the server's top-level poll loop.
  *
- * This currently watches only the listening socket and serves as the
- * event-loop skeleton for future connection handling logic.
+ * This loop monitors the listening socket and accepts new clients,
+ * registering each accepted socket in the poll set.
  *
  * @param listen_fd Listening socket file descriptor.
  * @return 0 on clean shutdown, -1 on fatal polling error.
  */
 static int run_poll_loop(int listen_fd) {
-    struct pollfd pfd;
+    struct pollfd *pfds;
+    nfds_t count;
+    nfds_t cap;
+    nfds_t i;
     int ready;
+    int client_fd;
+    struct sockaddr_in client_addr;
+    socklen_t client_len;
 
-    pfd.fd = listen_fd;
-    pfd.events = POLLIN;
-    pfd.revents = 0;
+    pfds = NULL;
+    count = 0;
+    cap = 0;
+
+    if (add_poll_fd(&pfds, &count, &cap, listen_fd, POLLIN) != 0) {
+        return -1;
+    }
 
     while (1) {
-        ready = poll(&pfd, 1, -1);
+        /* Block until at least one monitored fd has activity. */
+        ready = poll(pfds, count, -1);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
             }
+            free(pfds);
             return -1;
         }
 
-        if ((pfd.revents & (POLLERR | POLLNVAL)) != 0) {
-            errno = EIO;
-            return -1;
-        }
+        for (i = 0; i < count && ready > 0; i++) {
+            if (pfds[i].revents == 0) {
+                continue;
+            }
+            ready -= 1;
 
-        if ((pfd.revents & POLLIN) != 0) {
-            /* Connection handling is added in the next step. */
-            continue;
+            if (i == 0) {
+                /* Slot 0 is always the listening socket. */
+                if ((pfds[i].revents & (POLLERR | POLLNVAL)) != 0) {
+                    free(pfds);
+                    errno = EIO;
+                    return -1;
+                }
+
+                if ((pfds[i].revents & POLLIN) != 0) {
+                    /* Accept one pending connection and track it in poll(). */
+                    client_len = sizeof(client_addr);
+                    client_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
+                    if (client_fd < 0) {
+                        if (errno == EINTR) {
+                            continue;
+                        }
+                        free(pfds);
+                        return -1;
+                    }
+
+                    if (add_poll_fd(&pfds, &count, &cap, client_fd, POLLIN) != 0) {
+                        close(client_fd);
+                        free(pfds);
+                        return -1;
+                    }
+                }
+                continue;
+            }
+
+            if ((pfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
+                /* Close dead clients; decrement i because entries shift left. */
+                remove_client_fd(pfds, &count, i);
+                i -= 1;
+            }
         }
     }
 }

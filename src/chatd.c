@@ -265,10 +265,43 @@ static int register_client(
 }
 
 /**
+ * Read available bytes from a client socket into its input buffer.
+ *
+ * @param client Client record to update.
+ * @return 0 on successful read/no-op, 1 if client should be disconnected,
+ *         -1 on fatal read error.
+ */
+static int read_client_input(client_t *client) {
+    size_t free_space;
+    ssize_t bytes_read;
+
+    free_space = sizeof(client->input_buffer) - client->input_len;
+    if (free_space == 0) {
+        return 1;
+    }
+
+    bytes_read = recv(client->fd, client->input_buffer + client->input_len, free_space, 0);
+    if (bytes_read > 0) {
+        client->input_len += (size_t)bytes_read;
+        return 0;
+    }
+
+    if (bytes_read == 0) {
+        return 1;
+    }
+
+    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+        return 0;
+    }
+
+    return -1;
+}
+
+/**
  * Run the server's top-level poll loop.
  *
  * This loop monitors the listening socket and accepts new clients,
- * registering each accepted socket in the poll set.
+ * registering each accepted socket in the poll set and buffering input.
  *
  * @param listen_fd Listening socket file descriptor.
  * @return 0 on clean shutdown, -1 on fatal polling error.
@@ -285,6 +318,8 @@ static int run_poll_loop(int listen_fd) {
     int client_fd;
     struct sockaddr_in client_addr;
     socklen_t client_len;
+    client_t *client;
+    int read_result;
 
     pfds = NULL;
     clients = NULL;
@@ -353,6 +388,23 @@ static int run_poll_loop(int listen_fd) {
                 remove_client(clients, &client_count, i - 1);
                 remove_client_fd(pfds, &count, i);
                 i -= 1;
+                continue;
+            }
+
+            /* Read available client data into the per-client buffer; drop the client on EOF or invalid read state. */
+            if ((pfds[i].revents & POLLIN) != 0) {
+                client = &clients[i - 1];
+                read_result = read_client_input(client);
+                if (read_result < 0) {
+                    free(clients);
+                    free(pfds);
+                    return -1;
+                }
+                if (read_result > 0) {
+                    remove_client(clients, &client_count, i - 1);
+                    remove_client_fd(pfds, &count, i);
+                    i -= 1;
+                }
             }
         }
     }

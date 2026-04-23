@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +59,35 @@ static int setup_listen_socket(unsigned short port) {
     return fd;
 }
 
+static int run_poll_loop(int listen_fd) {
+    struct pollfd pfd;
+    int ready;
+
+    pfd.fd = listen_fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+
+    while (1) {
+        ready = poll(&pfd, 1, -1);
+        if (ready < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+
+        if ((pfd.revents & (POLLERR | POLLNVAL)) != 0) {
+            errno = EIO;
+            return -1;
+        }
+
+        if ((pfd.revents & POLLIN) != 0) {
+            /* Connection handling is added in the next step. */
+            continue;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     int listen_fd;
     unsigned short port;
@@ -76,6 +106,12 @@ int main(int argc, char **argv) {
     listen_fd = setup_listen_socket(port);
     if (listen_fd < 0) {
         perror("Failed to initialize listening socket");
+        return 1;
+    }
+
+    if (run_poll_loop(listen_fd) != 0) {
+        perror("poll loop failed");
+        close(listen_fd);
         return 1;
     }
 

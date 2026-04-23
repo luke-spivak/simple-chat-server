@@ -8,6 +8,19 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define MAX_SCREEN_NAME_LEN 32
+#define MAX_STATUS_LEN 64
+#define CLIENT_INPUT_CAPACITY 4096
+
+typedef struct {
+    int fd;
+    int is_authenticated;
+    char screen_name[MAX_SCREEN_NAME_LEN + 1];
+    char status[MAX_STATUS_LEN + 1];
+    char input_buffer[CLIENT_INPUT_CAPACITY];
+    size_t input_len;
+} client_t;
+
 /**
  * Parse a CLI port string into a validated TCP port number.
  *
@@ -129,6 +142,78 @@ static int add_poll_fd(struct pollfd **pfds, nfds_t *count, nfds_t *cap, int fd,
 }
 
 /**
+ * Ensure the client array has room for at least one more entry.
+ *
+ * @param clients Pointer to the client array pointer.
+ * @param cap Pointer to current client array capacity.
+ * @param needed Minimum required capacity.
+ * @return 0 on success, -1 on allocation failure.
+ */
+static int ensure_client_capacity(client_t **clients, nfds_t *cap, nfds_t needed) {
+    nfds_t new_cap;
+    client_t *new_clients;
+
+    if (*cap >= needed) {
+        return 0;
+    }
+
+    new_cap = (*cap == 0) ? 8 : (*cap * 2);
+    while (new_cap < needed) {
+        new_cap *= 2;
+    }
+
+    new_clients = realloc(*clients, new_cap * sizeof(*new_clients));
+    if (new_clients == NULL) {
+        return -1;
+    }
+
+    *clients = new_clients;
+    *cap = new_cap;
+    return 0;
+}
+
+/**
+ * Add a new client record to the client registry.
+ *
+ * @param clients Pointer to the client array pointer.
+ * @param count Pointer to number of active clients.
+ * @param cap Pointer to client array capacity.
+ * @param fd Accepted client socket.
+ * @return 0 on success, -1 on allocation failure.
+ */
+static int add_client(client_t **clients, nfds_t *count, nfds_t *cap, int fd) {
+    client_t *client;
+
+    if (ensure_client_capacity(clients, cap, *count + 1) != 0) {
+        return -1;
+    }
+
+    client = &(*clients)[*count];
+    memset(client, 0, sizeof(*client));
+    client->fd = fd;
+    client->is_authenticated = 0;
+
+    *count += 1;
+    return 0;
+}
+
+/**
+ * Remove a client record from the client registry.
+ *
+ * @param clients Client array.
+ * @param count Pointer to number of active clients.
+ * @param idx Index to remove.
+ */
+static void remove_client(client_t *clients, nfds_t *count, nfds_t idx) {
+    nfds_t i;
+
+    for (i = idx; i + 1 < *count; i++) {
+        clients[i] = clients[i + 1];
+    }
+    *count -= 1;
+}
+
+/**
  * Remove a client file descriptor from the poll set and close it.
  *
  * @param pfds Pollfd array.
@@ -146,6 +231,40 @@ static void remove_client_fd(struct pollfd *pfds, nfds_t *count, nfds_t idx) {
 }
 
 /**
+ * Register a newly accepted client in both poll and client registries.
+ *
+ * @param pfds Pointer to pollfd array pointer.
+ * @param poll_count Pointer to active poll entries count.
+ * @param poll_cap Pointer to pollfd capacity.
+ * @param clients Pointer to client array pointer.
+ * @param client_count Pointer to active client count.
+ * @param client_cap Pointer to client array capacity.
+ * @param fd Accepted client socket.
+ * @return 0 on success, -1 on allocation failure.
+ */
+static int register_client(
+    struct pollfd **pfds,
+    nfds_t *poll_count,
+    nfds_t *poll_cap,
+    client_t **clients,
+    nfds_t *client_count,
+    nfds_t *client_cap,
+    int fd
+) {
+    if (add_poll_fd(pfds, poll_count, poll_cap, fd, POLLIN) != 0) {
+        return -1;
+    }
+
+    if (add_client(clients, client_count, client_cap, fd) != 0) {
+        close(fd);
+        *poll_count -= 1;
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
  * Run the server's top-level poll loop.
  *
  * This loop monitors the listening socket and accepts new clients,
@@ -156,8 +275,11 @@ static void remove_client_fd(struct pollfd *pfds, nfds_t *count, nfds_t idx) {
  */
 static int run_poll_loop(int listen_fd) {
     struct pollfd *pfds;
+    client_t *clients;
     nfds_t count;
     nfds_t cap;
+    nfds_t client_count;
+    nfds_t client_cap;
     nfds_t i;
     int ready;
     int client_fd;
@@ -165,8 +287,11 @@ static int run_poll_loop(int listen_fd) {
     socklen_t client_len;
 
     pfds = NULL;
+    clients = NULL;
     count = 0;
     cap = 0;
+    client_count = 0;
+    client_cap = 0;
 
     if (add_poll_fd(&pfds, &count, &cap, listen_fd, POLLIN) != 0) {
         return -1;
@@ -179,6 +304,7 @@ static int run_poll_loop(int listen_fd) {
             if (errno == EINTR) {
                 continue;
             }
+            free(clients);
             free(pfds);
             return -1;
         }
@@ -192,6 +318,7 @@ static int run_poll_loop(int listen_fd) {
             if (i == 0) {
                 /* Slot 0 is always the listening socket. */
                 if ((pfds[i].revents & (POLLERR | POLLNVAL)) != 0) {
+                    free(clients);
                     free(pfds);
                     errno = EIO;
                     return -1;
@@ -205,12 +332,15 @@ static int run_poll_loop(int listen_fd) {
                         if (errno == EINTR) {
                             continue;
                         }
+                        free(clients);
                         free(pfds);
                         return -1;
                     }
 
-                    if (add_poll_fd(&pfds, &count, &cap, client_fd, POLLIN) != 0) {
-                        close(client_fd);
+                    if (register_client(
+                            &pfds, &count, &cap, &clients, &client_count, &client_cap, client_fd
+                        ) != 0) {
+                        free(clients);
                         free(pfds);
                         return -1;
                     }
@@ -220,6 +350,7 @@ static int run_poll_loop(int listen_fd) {
 
             if ((pfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
                 /* Close dead clients; decrement i because entries shift left. */
+                remove_client(clients, &client_count, i - 1);
                 remove_client_fd(pfds, &count, i);
                 i -= 1;
             }

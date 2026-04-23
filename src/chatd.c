@@ -8,6 +8,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+/**
+ * Parse a CLI port string into a validated TCP port number.
+ *
+ * @param text Input string expected to contain only decimal digits.
+ * @param out_port Output pointer for the parsed port on success.
+ * @return 0 on success, -1 on parse/validation failure.
+ */
 static int parse_port(const char *text, unsigned short *out_port) {
     char *end = NULL;
     long value;
@@ -25,6 +32,15 @@ static int parse_port(const char *text, unsigned short *out_port) {
     return 0;
 }
 
+/**
+ * Create and initialize a listening IPv4 TCP socket.
+ *
+ * The socket is configured with SO_REUSEADDR, bound to INADDR_ANY:port,
+ * and moved to listening state.
+ *
+ * @param port Local TCP port (host byte order).
+ * @return Listening fd on success, -1 on error.
+ */
 static int setup_listen_socket(unsigned short port) {
     int fd;
     int opt;
@@ -59,6 +75,15 @@ static int setup_listen_socket(unsigned short port) {
     return fd;
 }
 
+/**
+ * Run the server's top-level poll loop.
+ *
+ * This currently watches only the listening socket and serves as the
+ * event-loop skeleton for future connection handling logic.
+ *
+ * @param listen_fd Listening socket file descriptor.
+ * @return 0 on clean shutdown, -1 on fatal polling error.
+ */
 static int run_poll_loop(int listen_fd) {
     struct pollfd pfd;
     int ready;
@@ -88,6 +113,15 @@ static int run_poll_loop(int listen_fd) {
     }
 }
 
+/**
+ * Program entrypoint for chatd.
+ *
+ * Expects exactly one argument: a TCP port number.
+ *
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @return 0 on success, non-zero on usage/setup/runtime errors.
+ */
 int main(int argc, char **argv) {
     int listen_fd;
     unsigned short port;

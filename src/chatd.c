@@ -565,6 +565,94 @@ int send_protocol_err_v1(int fd, unsigned int error_code, const char *explanatio
 }
 
 /**
+ * Placeholder NAM handler.
+ *
+ * @param client Requesting client.
+ * @param body Message body bytes, including trailing delimiter.
+ * @param body_len Length of body in bytes.
+ * @return 0 on success, -1 on protocol/processing failure.
+ */
+static int handle_nam(client_t *client, const char *body, size_t body_len) {
+    (void)client;
+    (void)body;
+    (void)body_len;
+    return 0;
+}
+
+/**
+ * Placeholder SET handler.
+ *
+ * @param client Requesting client.
+ * @param body Message body bytes, including trailing delimiter.
+ * @param body_len Length of body in bytes.
+ * @return 0 on success, -1 on protocol/processing failure.
+ */
+static int handle_set(client_t *client, const char *body, size_t body_len) {
+    (void)client;
+    (void)body;
+    (void)body_len;
+    return 0;
+}
+
+/**
+ * Placeholder MSG handler.
+ *
+ * @param client Requesting client.
+ * @param body Message body bytes, including trailing delimiter.
+ * @param body_len Length of body in bytes.
+ * @return 0 on success, -1 on protocol/processing failure.
+ */
+static int handle_msg(client_t *client, const char *body, size_t body_len) {
+    (void)client;
+    (void)body;
+    (void)body_len;
+    return 0;
+}
+
+/**
+ * Placeholder WHO handler.
+ *
+ * @param client Requesting client.
+ * @param body Message body bytes, including trailing delimiter.
+ * @param body_len Length of body in bytes.
+ * @return 0 on success, -1 on protocol/processing failure.
+ */
+static int handle_who(client_t *client, const char *body, size_t body_len) {
+    (void)client;
+    (void)body;
+    (void)body_len;
+    return 0;
+}
+
+/**
+ * Dispatch one complete client frame to the appropriate command handler.
+ *
+ * @param client Requesting client.
+ * @param header Parsed protocol header.
+ * @param body Message body bytes, including trailing delimiter.
+ * @param body_len Body byte length from the protocol header.
+ * @return 0 on successful handling, -1 on unknown/invalid command or handler failure.
+ */
+static int dispatch_client_command(
+    client_t *client, const protocol_header_t *header, const char *body, size_t body_len
+) {
+    if (strcmp(header->code, "NAM") == 0) {
+        return handle_nam(client, body, body_len);
+    }
+    if (strcmp(header->code, "SET") == 0) {
+        return handle_set(client, body, body_len);
+    }
+    if (strcmp(header->code, "MSG") == 0) {
+        return handle_msg(client, body, body_len);
+    }
+    if (strcmp(header->code, "WHO") == 0) {
+        return handle_who(client, body, body_len);
+    }
+
+    return -1;
+}
+
+/**
  * Remove a consumed byte prefix from a client's input buffer.
  *
  * @param client Client record whose buffer is updated.
@@ -581,19 +669,20 @@ static void consume_client_input(client_t *client, size_t consumed) {
 }
 
 /**
- * Validate complete frames currently buffered for a client.
+ * Validate and dispatch complete frames currently buffered for a client.
  *
  * A frame is considered complete when the declared body length is present.
  * The final byte of that body must be a '|' delimiter.
  *
  * @param client Client record whose input buffer is validated.
- * @return 0 if buffered data is valid so far, -1 on framing violation.
+ * @return 0 if buffered data is valid so far, -1 on framing/dispatch violation.
  */
 static int validate_and_consume_frames(client_t *client) {
     protocol_header_t header;
     int header_parse_result;
     size_t total_frame_len;
     size_t body_len;
+    const char *body;
 
     while (1) {
         header_parse_result = parse_protocol_header(client, &header);
@@ -622,7 +711,11 @@ static int validate_and_consume_frames(client_t *client) {
             return -1;
         }
 
-        /* Step 10 validates framing only; command dispatch follows in later steps. */
+        body = client->input_buffer + header.header_len;
+        if (dispatch_client_command(client, &header, body, body_len) != 0) {
+            return -1;
+        }
+
         consume_client_input(client, total_frame_len);
     }
 }

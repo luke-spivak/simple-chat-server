@@ -376,6 +376,69 @@ static int parse_protocol_header(const client_t *client, protocol_header_t *out_
 }
 
 /**
+ * Remove a consumed byte prefix from a client's input buffer.
+ *
+ * @param client Client record whose buffer is updated.
+ * @param consumed Number of leading bytes to remove.
+ */
+static void consume_client_input(client_t *client, size_t consumed) {
+    if (consumed >= client->input_len) {
+        client->input_len = 0;
+        return;
+    }
+
+    memmove(client->input_buffer, client->input_buffer + consumed, client->input_len - consumed);
+    client->input_len -= consumed;
+}
+
+/**
+ * Validate complete frames currently buffered for a client.
+ *
+ * A frame is considered complete when the declared body length is present.
+ * The final byte of that body must be a '|' delimiter.
+ *
+ * @param client Client record whose input buffer is validated.
+ * @return 0 if buffered data is valid so far, -1 on framing violation.
+ */
+static int validate_and_consume_frames(client_t *client) {
+    protocol_header_t header;
+    int header_parse_result;
+    size_t total_frame_len;
+    size_t body_len;
+
+    while (1) {
+        header_parse_result = parse_protocol_header(client, &header);
+        if (header_parse_result == HEADER_PARSE_INCOMPLETE) {
+            return 0;
+        }
+        if (header_parse_result == HEADER_PARSE_INVALID) {
+            return -1;
+        }
+
+        if (header.header_len > sizeof(client->input_buffer)) {
+            return -1;
+        }
+
+        body_len = (size_t)header.body_len;
+        if (body_len == 0 || body_len > sizeof(client->input_buffer) - header.header_len) {
+            return -1;
+        }
+
+        total_frame_len = header.header_len + body_len;
+        if (client->input_len < total_frame_len) {
+            return 0;
+        }
+
+        if (client->input_buffer[total_frame_len - 1] != '|') {
+            return -1;
+        }
+
+        /* Step 10 validates framing only; command dispatch follows in later steps. */
+        consume_client_input(client, total_frame_len);
+    }
+}
+
+/**
  * Read available bytes from a client socket into its input buffer.
  *
  * @param client Client record to update.
@@ -431,8 +494,6 @@ static int run_poll_loop(int listen_fd) {
     socklen_t client_len;
     client_t *client;
     int read_result;
-    protocol_header_t header;
-    int header_parse_result;
 
     pfds = NULL;
     clients = NULL;
@@ -520,16 +581,11 @@ static int run_poll_loop(int listen_fd) {
                     continue;
                 }
 
-                header_parse_result = parse_protocol_header(client, &header);
-                if (header_parse_result == HEADER_PARSE_INVALID) {
+                if (validate_and_consume_frames(client) != 0) {
                     remove_client(clients, &client_count, i - 1);
                     remove_client_fd(pfds, &count, i);
                     i -= 1;
                     continue;
-                }
-                if (header_parse_result == HEADER_PARSE_COMPLETE) {
-                    /* Step 9 only parses header fields; frame handling is added next. */
-                    (void)header;
                 }
             }
         }

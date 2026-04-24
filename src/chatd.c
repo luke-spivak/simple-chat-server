@@ -565,6 +565,54 @@ int send_protocol_err_v1(int fd, unsigned int error_code, const char *explanatio
 }
 
 /**
+ * Return whether a byte is legal in a screen name.
+ *
+ * Allowed characters: letters, digits, hyphen, underscore.
+ *
+ * @param c Character byte to check.
+ * @return 1 if legal, 0 otherwise.
+ */
+static int is_screen_name_char(char c) {
+    if (c >= 'a' && c <= 'z') {
+        return 1;
+    }
+    if (c >= 'A' && c <= 'Z') {
+        return 1;
+    }
+    if (c >= '0' && c <= '9') {
+        return 1;
+    }
+    if (c == '-' || c == '_') {
+        return 1;
+    }
+
+    return 0;
+}
+
+/**
+ * Validate screen-name constraints from the protocol spec.
+ *
+ * @param name Candidate screen-name bytes.
+ * @param name_len Length in bytes.
+ * @return 1 if valid, 0 otherwise.
+ */
+static int validate_screen_name(const char *name, size_t name_len) {
+    size_t i;
+
+    if (name_len < 1 || name_len > MAX_SCREEN_NAME_LEN) {
+        return 0;
+    }
+
+    for (i = 0; i < name_len; i++) {
+        if (!is_screen_name_char(name[i])) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+/**
  * Placeholder NAM handler.
  *
  * @param client Requesting client.
@@ -573,9 +621,23 @@ int send_protocol_err_v1(int fd, unsigned int error_code, const char *explanatio
  * @return 0 on success, -1 on protocol/processing failure.
  */
 static int handle_nam(client_t *client, const char *body, size_t body_len) {
+    size_t name_len;
+
     (void)client;
-    (void)body;
-    (void)body_len;
+    if (body_len < 1) {
+        return -1;
+    }
+
+    /* NAM has one field, so the body format is "<screen_name>|". */
+    if (body[body_len - 1] != '|') {
+        return -1;
+    }
+
+    name_len = body_len - 1;
+    if (!validate_screen_name(body, name_len)) {
+        return -1;
+    }
+
     return 0;
 }
 

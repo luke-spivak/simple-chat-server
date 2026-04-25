@@ -620,10 +620,35 @@ static int validate_screen_name(const char *name, size_t name_len) {
  * @param body_len Length of body in bytes.
  * @return 0 on success, -1 on protocol/processing failure.
  */
-static int handle_nam(client_t *client, const char *body, size_t body_len) {
+static int is_name_in_use(
+    const client_t *clients, nfds_t client_count, const client_t *self, const char *name, size_t name_len
+) {
+    nfds_t i;
+    size_t existing_len;
+
+    for (i = 0; i < client_count; i++) {
+        if (&clients[i] == self) {
+            continue;
+        }
+        if (clients[i].screen_name[0] == '\0') {
+            continue;
+        }
+
+        existing_len = strlen(clients[i].screen_name);
+        if (existing_len != name_len) {
+            continue;
+        }
+        if (memcmp(clients[i].screen_name, name, name_len) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int handle_nam(client_t *client, const client_t *clients, nfds_t client_count, const char *body, size_t body_len) {
     size_t name_len;
 
-    (void)client;
     if (body_len < 1) {
         return -1;
     }
@@ -637,6 +662,16 @@ static int handle_nam(client_t *client, const char *body, size_t body_len) {
     if (!validate_screen_name(body, name_len)) {
         return -1;
     }
+
+    if (is_name_in_use(clients, client_count, client, body, name_len)) {
+        if (send_protocol_err_v1(client->fd, 1U, "Name in use") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
+    memcpy(client->screen_name, body, name_len);
+    client->screen_name[name_len] = '\0';
 
     return 0;
 }
@@ -696,10 +731,15 @@ static int handle_who(client_t *client, const char *body, size_t body_len) {
  * @return 0 on successful handling, -1 on unknown/invalid command or handler failure.
  */
 static int dispatch_client_command(
-    client_t *client, const protocol_header_t *header, const char *body, size_t body_len
+    client_t *client,
+    const client_t *clients,
+    nfds_t client_count,
+    const protocol_header_t *header,
+    const char *body,
+    size_t body_len
 ) {
     if (strcmp(header->code, "NAM") == 0) {
-        return handle_nam(client, body, body_len);
+        return handle_nam(client, clients, client_count, body, body_len);
     }
     if (strcmp(header->code, "SET") == 0) {
         return handle_set(client, body, body_len);
@@ -739,7 +779,7 @@ static void consume_client_input(client_t *client, size_t consumed) {
  * @param client Client record whose input buffer is validated.
  * @return 0 if buffered data is valid so far, -1 on framing/dispatch violation.
  */
-static int validate_and_consume_frames(client_t *client) {
+static int validate_and_consume_frames(client_t *client, const client_t *clients, nfds_t client_count) {
     protocol_header_t header;
     int header_parse_result;
     size_t total_frame_len;
@@ -774,7 +814,7 @@ static int validate_and_consume_frames(client_t *client) {
         }
 
         body = client->input_buffer + header.header_len;
-        if (dispatch_client_command(client, &header, body, body_len) != 0) {
+        if (dispatch_client_command(client, clients, client_count, &header, body, body_len) != 0) {
             return -1;
         }
 
@@ -925,7 +965,7 @@ static int run_poll_loop(int listen_fd) {
                     continue;
                 }
 
-                if (validate_and_consume_frames(client) != 0) {
+                if (validate_and_consume_frames(client, clients, client_count) != 0) {
                     remove_client(clients, &client_count, i - 1);
                     remove_client_fd(pfds, &count, i);
                     i -= 1;

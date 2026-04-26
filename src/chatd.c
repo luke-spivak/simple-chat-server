@@ -672,6 +672,12 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
 
     memcpy(client->screen_name, body, name_len);
     client->screen_name[name_len] = '\0';
+    /* In this project, authenticated users are members of the single room #all. */
+    client->is_authenticated = 1;
+
+    if (send_protocol_msg_v1(client->fd, "#all", client->screen_name, "Welcome to the chat!") != 0) {
+        return -1;
+    }
 
     return 0;
 }

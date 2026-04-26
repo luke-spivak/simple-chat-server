@@ -613,6 +613,44 @@ static int validate_screen_name(const char *name, size_t name_len) {
 }
 
 /**
+ * Return whether a byte is legal in a status string.
+ *
+ * Allowed range is ASCII 32..126 inclusive.
+ *
+ * @param c Character byte to check.
+ * @return 1 if legal, 0 otherwise.
+ */
+static int is_status_char(char c) {
+    unsigned char uc;
+
+    uc = (unsigned char)c;
+    return (uc >= 32U && uc <= 126U) ? 1 : 0;
+}
+
+/**
+ * Validate status constraints from the protocol spec.
+ *
+ * @param status Candidate status bytes.
+ * @param status_len Length in bytes.
+ * @return 1 if valid, 0 otherwise.
+ */
+static int validate_status(const char *status, size_t status_len) {
+    size_t i;
+
+    if (status_len > MAX_STATUS_LEN) {
+        return 0;
+    }
+
+    for (i = 0; i < status_len; i++) {
+        if (!is_status_char(status[i])) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+/**
  * Placeholder NAM handler.
  *
  * @param client Requesting client.
@@ -683,7 +721,7 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
 }
 
 /**
- * Placeholder SET handler.
+ * Validate SET payload constraints.
  *
  * @param client Requesting client.
  * @param body Message body bytes, including trailing delimiter.
@@ -691,9 +729,32 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
  * @return 0 on success, -1 on protocol/processing failure.
  */
 static int handle_set(client_t *client, const char *body, size_t body_len) {
-    (void)client;
-    (void)body;
-    (void)body_len;
+    size_t status_len;
+
+    if (body_len < 1) {
+        return -1;
+    }
+
+    /* SET has one field, so the body format is "<status>|". */
+    if (body[body_len - 1] != '|') {
+        return -1;
+    }
+
+    status_len = body_len - 1;
+    if (status_len > MAX_STATUS_LEN) {
+        if (send_protocol_err_v1(client->fd, 4U, "Too long") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
+    if (!validate_status(body, status_len)) {
+        if (send_protocol_err_v1(client->fd, 3U, "Illegal character") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
     return 0;
 }
 

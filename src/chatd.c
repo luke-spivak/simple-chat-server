@@ -721,14 +721,54 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
 }
 
 /**
- * Validate SET payload constraints.
+ * Broadcast a status-change announcement to authenticated #all members.
+ *
+ * @param clients Client registry.
+ * @param client_count Number of active clients.
+ * @param screen_name Name of the user whose status changed.
+ * @param status New status text.
+ * @return 0 on success, -1 on formatting failure.
+ */
+static int broadcast_status_change(
+    const client_t *clients, nfds_t client_count, const char *screen_name, const char *status
+) {
+    nfds_t i;
+    char announcement[160];
+    int n;
+
+    n = snprintf(announcement, sizeof(announcement), "%s is now \"%s\"", screen_name, status);
+    if (n <= 0 || (size_t)n >= sizeof(announcement)) {
+        return -1;
+    }
+
+    for (i = 0; i < client_count; i++) {
+        if (!clients[i].is_authenticated) {
+            continue;
+        }
+
+        /*
+         * Best-effort broadcast: if one recipient socket is stale, keep
+         * serving the sender and remaining recipients.
+         */
+        (void)send_protocol_msg_v1(clients[i].fd, "#all", "#all", announcement);
+    }
+
+    return 0;
+}
+
+/**
+ * Validate SET payload constraints and apply status update.
  *
  * @param client Requesting client.
+ * @param clients Client registry.
+ * @param client_count Number of active clients.
  * @param body Message body bytes, including trailing delimiter.
  * @param body_len Length of body in bytes.
  * @return 0 on success, -1 on protocol/processing failure.
  */
-static int handle_set(client_t *client, const char *body, size_t body_len) {
+static int handle_set(
+    client_t *client, const client_t *clients, nfds_t client_count, const char *body, size_t body_len
+) {
     size_t status_len;
 
     if (body_len < 1) {
@@ -757,6 +797,12 @@ static int handle_set(client_t *client, const char *body, size_t body_len) {
 
     memcpy(client->status, body, status_len);
     client->status[status_len] = '\0';
+
+    if (status_len > 0 && client->is_authenticated) {
+        if (broadcast_status_change(clients, client_count, client->screen_name, client->status) != 0) {
+            return -1;
+        }
+    }
 
     return 0;
 }
@@ -812,7 +858,7 @@ static int dispatch_client_command(
         return handle_nam(client, clients, client_count, body, body_len);
     }
     if (strcmp(header->code, "SET") == 0) {
-        return handle_set(client, body, body_len);
+        return handle_set(client, clients, client_count, body, body_len);
     }
     if (strcmp(header->code, "MSG") == 0) {
         return handle_msg(client, body, body_len);

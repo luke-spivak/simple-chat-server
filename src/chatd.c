@@ -576,6 +576,17 @@ static int send_unreadable_error(const client_t *client) {
 }
 
 /**
+ * Report unreadable protocol data and signal fatal disconnect.
+ *
+ * @param client Client that sent unreadable data.
+ * @return Always -1 so the caller closes the connection.
+ */
+static int fatal_unreadable(const client_t *client) {
+    (void)send_unreadable_error(client);
+    return -1;
+}
+
+/**
  * Return whether a byte is legal in a screen name.
  *
  * Allowed characters: letters, digits, hyphen, underscore.
@@ -741,14 +752,12 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
     size_t name_len;
 
     if (body_len < 1) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     /* NAM has one field, so the body format is "<screen_name>|". */
     if (body[body_len - 1] != '|') {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     name_len = body_len - 1;
@@ -827,14 +836,12 @@ static int handle_set(
     size_t status_len;
 
     if (body_len < 1) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     /* SET has one field, so the body format is "<status>|". */
     if (body[body_len - 1] != '|') {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     status_len = body_len - 1;
@@ -959,19 +966,16 @@ static int handle_msg(
     const char *effective_sender;
 
     if (body_len < 1) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
     if (body[body_len - 1] != '|') {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     body_end = body + body_len;
     first_sep = memchr(body, '|', body_len);
     if (first_sep == NULL) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     /*
@@ -980,8 +984,7 @@ static int handle_msg(
      */
     second_sep = memchr(first_sep + 1, '|', (size_t)((body_end - 1) - (first_sep + 1)));
     if (second_sep == NULL) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     claimed_sender = body;
@@ -1075,19 +1078,16 @@ static int handle_who(
     int n;
 
     if (body_len < 1) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
     if (body[body_len - 1] != '|') {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     target = body;
     target_len = body_len - 1;
     if (target_len == 0) {
-        (void)send_unreadable_error(client);
-        return -1;
+        return fatal_unreadable(client);
     }
 
     if (target_len == sizeof(room_all) - 1 && memcmp(target, room_all, sizeof(room_all) - 1) == 0) {
@@ -1204,8 +1204,7 @@ static int dispatch_client_command(
         return handle_who(client, clients, client_count, body, body_len);
     }
 
-    (void)send_unreadable_error(client);
-    return -1;
+    return fatal_unreadable(client);
 }
 
 /**
@@ -1246,24 +1245,20 @@ static int validate_and_consume_frames(client_t *client, const client_t *clients
             return 0;
         }
         if (header_parse_result == HEADER_PARSE_INVALID) {
-            (void)send_unreadable_error(client);
-            return -1;
+            return fatal_unreadable(client);
         }
 
         if (header.version != 1U) {
-            (void)send_unreadable_error(client);
-            return -1;
+            return fatal_unreadable(client);
         }
 
         if (header.header_len > sizeof(client->input_buffer)) {
-            (void)send_unreadable_error(client);
-            return -1;
+            return fatal_unreadable(client);
         }
 
         body_len = (size_t)header.body_len;
         if (body_len == 0 || body_len > sizeof(client->input_buffer) - header.header_len) {
-            (void)send_unreadable_error(client);
-            return -1;
+            return fatal_unreadable(client);
         }
 
         total_frame_len = header.header_len + body_len;
@@ -1272,8 +1267,7 @@ static int validate_and_consume_frames(client_t *client, const client_t *clients
         }
 
         if (client->input_buffer[total_frame_len - 1] != '|') {
-            (void)send_unreadable_error(client);
-            return -1;
+            return fatal_unreadable(client);
         }
 
         body = client->input_buffer + header.header_len;
@@ -1428,6 +1422,7 @@ static int run_poll_loop(int listen_fd) {
                     continue;
                 }
 
+                /* Fatal parse/dispatch violations (including ERR 0) close this client immediately. */
                 if (validate_and_consume_frames(client, clients, client_count) != 0) {
                     remove_client(clients, &client_count, i - 1);
                     remove_client_fd(pfds, &count, i);

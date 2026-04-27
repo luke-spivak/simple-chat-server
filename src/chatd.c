@@ -913,7 +913,11 @@ static const client_t *find_client_by_name(
 }
 
 /**
- * Validate MSG payload constraints and handle #all room delivery.
+ * Validate MSG payload constraints and handle delivery.
+ *
+ * The client-provided sender field is treated as untrusted input and is
+ * ignored when forwarding. Forwarded messages always use the authenticated
+ * connection identity (client->screen_name).
  *
  * @param client Requesting client.
  * @param clients Client registry.
@@ -928,14 +932,17 @@ static int handle_msg(
     static const char room_all[] = "#all";
     const char *first_sep;
     const char *second_sep;
+    const char *claimed_sender;
     const char *recipient;
     const char *message;
     const char *body_end;
+    size_t claimed_sender_len;
     size_t recipient_len;
     size_t message_len;
     char recipient_field[MAX_SCREEN_NAME_LEN + 1];
     char message_field[MAX_USER_MESSAGE_LEN + 1];
     const client_t *target_client;
+    const char *effective_sender;
 
     if (body_len < 1) {
         return -1;
@@ -959,10 +966,21 @@ static int handle_msg(
         return -1;
     }
 
+    claimed_sender = body;
+    claimed_sender_len = (size_t)(first_sep - claimed_sender);
     recipient = first_sep + 1;
     recipient_len = (size_t)(second_sep - recipient);
     message = second_sep + 1;
     message_len = (size_t)((body_end - 1) - message);
+
+    /*
+     * Spoof prevention: never trust the sender field supplied by the client.
+     * We still parse it for framing correctness, but always forward using the
+     * authenticated sender identity for this socket.
+     */
+    (void)claimed_sender;
+    (void)claimed_sender_len;
+    effective_sender = client->screen_name;
 
     if (!validate_msg_recipient(recipient, recipient_len)) {
         if (send_protocol_err_v1(client->fd, 3U, "Illegal character") != 0) {
@@ -989,7 +1007,7 @@ static int handle_msg(
     message_field[message_len] = '\0';
 
     if (recipient_len == sizeof(room_all) - 1 && memcmp(recipient, room_all, sizeof(room_all) - 1) == 0) {
-        if (broadcast_room_message(clients, client_count, client->screen_name, message_field) != 0) {
+        if (broadcast_room_message(clients, client_count, effective_sender, message_field) != 0) {
             return -1;
         }
         return 0;
@@ -1006,7 +1024,7 @@ static int handle_msg(
         return 0;
     }
 
-    if (send_protocol_msg_v1(target_client->fd, client->screen_name, recipient_field, message_field) != 0) {
+    if (send_protocol_msg_v1(target_client->fd, effective_sender, recipient_field, message_field) != 0) {
         return -1;
     }
 

@@ -755,6 +755,9 @@ static int handle_set(client_t *client, const char *body, size_t body_len) {
         return 0;
     }
 
+    memcpy(client->status, body, status_len);
+    client->status[status_len] = '\0';
+
     return 0;
 }
 

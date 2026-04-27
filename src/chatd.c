@@ -1032,17 +1032,70 @@ static int handle_msg(
 }
 
 /**
- * Placeholder WHO handler.
+ * Handle WHO queries for a specific user.
  *
  * @param client Requesting client.
+ * @param clients Client registry.
+ * @param client_count Number of active clients.
  * @param body Message body bytes, including trailing delimiter.
  * @param body_len Length of body in bytes.
  * @return 0 on success, -1 on protocol/processing failure.
  */
-static int handle_who(client_t *client, const char *body, size_t body_len) {
-    (void)client;
-    (void)body;
-    (void)body_len;
+static int handle_who(
+    client_t *client, const client_t *clients, nfds_t client_count, const char *body, size_t body_len
+) {
+    static const char room_all[] = "#all";
+    const char *target;
+    size_t target_len;
+    const client_t *target_client;
+    char response_body[128];
+    int n;
+
+    if (body_len < 1) {
+        return -1;
+    }
+    if (body[body_len - 1] != '|') {
+        return -1;
+    }
+
+    target = body;
+    target_len = body_len - 1;
+    if (target_len == 0) {
+        return -1;
+    }
+
+    /*
+     * Step 23 implements single-user WHO only; room-listing response
+     * for WHO #all is added in step 24.
+     */
+    if (target_len == sizeof(room_all) - 1 && memcmp(target, room_all, sizeof(room_all) - 1) == 0) {
+        return 0;
+    }
+
+    target_client = find_client_by_name(clients, client_count, target, target_len);
+    if (target_client == NULL) {
+        if (send_protocol_err_v1(client->fd, 2U, "Unknown recipient") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
+    if (target_client->status[0] != '\0') {
+        n = snprintf(response_body, sizeof(response_body), "%s: %s", target_client->screen_name, target_client->status);
+        if (n <= 0 || (size_t)n >= sizeof(response_body)) {
+            return -1;
+        }
+    } else {
+        n = snprintf(response_body, sizeof(response_body), "No status");
+        if (n <= 0 || (size_t)n >= sizeof(response_body)) {
+            return -1;
+        }
+    }
+
+    if (send_protocol_msg_v1(client->fd, "#all", client->screen_name, response_body) != 0) {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -1073,7 +1126,7 @@ static int dispatch_client_command(
         return handle_msg(client, clients, client_count, body, body_len);
     }
     if (strcmp(header->code, "WHO") == 0) {
-        return handle_who(client, body, body_len);
+        return handle_who(client, clients, client_count, body, body_len);
     }
 
     return -1;

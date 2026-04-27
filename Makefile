@@ -6,6 +6,8 @@ SRC := src/chatd.c
 OBJ := $(SRC:.c=.o)
 TEST_BIN := tests/test_protocol
 TEST_SRC := tests/test_protocol.c
+INTEG_TEST_BIN := tests/test_integration_nam
+INTEG_TEST_SRC := tests/test_integration_nam.c
 
 .PHONY: all test clean
 
@@ -20,8 +22,12 @@ src/%.o: src/%.c
 $(TEST_BIN): $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $<
 
-test: all $(TEST_BIN)
+$(INTEG_TEST_BIN): $(INTEG_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $<
+
+test: all $(TEST_BIN) $(INTEG_TEST_BIN)
 	./$(TEST_BIN)
+	./$(INTEG_TEST_BIN)
 
 clean:
-	rm -f $(TARGET) $(OBJ) $(TEST_BIN)
+	rm -f $(TARGET) $(OBJ) $(TEST_BIN) $(INTEG_TEST_BIN)

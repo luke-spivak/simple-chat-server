@@ -761,8 +761,17 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
     }
 
     name_len = body_len - 1;
+    if (name_len < 1 || name_len > MAX_SCREEN_NAME_LEN) {
+        if (send_protocol_err_v1(client->fd, 4U, "Too long") != 0) {
+            return -1;
+        }
+        return 0;
+    }
     if (!validate_screen_name(body, name_len)) {
-        return -1;
+        if (send_protocol_err_v1(client->fd, 3U, "Illegal character") != 0) {
+            return -1;
+        }
+        return 0;
     }
 
     if (is_name_in_use(clients, client_count, client, body, name_len)) {

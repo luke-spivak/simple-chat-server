@@ -4,6 +4,8 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic
 TARGET := chatd
 SRC := src/chatd.c
 OBJ := $(SRC:.c=.o)
+TEST_BIN := tests/test_protocol
+TEST_SRC := tests/test_protocol.c
 
 .PHONY: all test clean
 
@@ -15,8 +17,11 @@ $(TARGET): $(OBJ)
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test: all
-	@echo "No tests yet."
+$(TEST_BIN): $(TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $<
+
+test: all $(TEST_BIN)
+	./$(TEST_BIN)
 
 clean:
-	rm -f $(TARGET) $(OBJ)
+	rm -f $(TARGET) $(OBJ) $(TEST_BIN)

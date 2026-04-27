@@ -10,6 +10,7 @@
 
 #define MAX_SCREEN_NAME_LEN 32
 #define MAX_STATUS_LEN 64
+#define MAX_USER_MESSAGE_LEN 80
 #define CLIENT_INPUT_CAPACITY 4096
 #define MAX_BODY_LENGTH_FIELD 99999
 
@@ -651,6 +652,48 @@ static int validate_status(const char *status, size_t status_len) {
 }
 
 /**
+ * Validate recipient syntax for client MSG commands.
+ *
+ * Recipient must be "#all" or a valid screen name.
+ *
+ * @param recipient Recipient bytes.
+ * @param recipient_len Recipient length in bytes.
+ * @return 1 if syntactically valid, 0 otherwise.
+ */
+static int validate_msg_recipient(const char *recipient, size_t recipient_len) {
+    static const char room_all[] = "#all";
+
+    if (recipient_len == sizeof(room_all) - 1 && memcmp(recipient, room_all, sizeof(room_all) - 1) == 0) {
+        return 1;
+    }
+
+    return validate_screen_name(recipient, recipient_len);
+}
+
+/**
+ * Validate user-message body constraints from the protocol spec.
+ *
+ * @param message Message text bytes.
+ * @param message_len Message length in bytes.
+ * @return 1 if valid, 0 otherwise.
+ */
+static int validate_user_message(const char *message, size_t message_len) {
+    size_t i;
+
+    if (message_len < 1 || message_len > MAX_USER_MESSAGE_LEN) {
+        return 0;
+    }
+
+    for (i = 0; i < message_len; i++) {
+        if (!is_status_char(message[i])) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+/**
  * Placeholder NAM handler.
  *
  * @param client Requesting client.
@@ -808,7 +851,7 @@ static int handle_set(
 }
 
 /**
- * Placeholder MSG handler.
+ * Validate MSG payload constraints.
  *
  * @param client Requesting client.
  * @param body Message body bytes, including trailing delimiter.
@@ -816,9 +859,62 @@ static int handle_set(
  * @return 0 on success, -1 on protocol/processing failure.
  */
 static int handle_msg(client_t *client, const char *body, size_t body_len) {
-    (void)client;
-    (void)body;
-    (void)body_len;
+    const char *first_sep;
+    const char *second_sep;
+    const char *recipient;
+    const char *message;
+    const char *body_end;
+    size_t recipient_len;
+    size_t message_len;
+
+    if (body_len < 1) {
+        return -1;
+    }
+    if (body[body_len - 1] != '|') {
+        return -1;
+    }
+
+    body_end = body + body_len;
+    first_sep = memchr(body, '|', body_len);
+    if (first_sep == NULL) {
+        return -1;
+    }
+
+    /*
+     * MSG body is "sender|recipient|message|"; message may include '|',
+     * so only the first two delimiters are structural.
+     */
+    second_sep = memchr(first_sep + 1, '|', (size_t)((body_end - 1) - (first_sep + 1)));
+    if (second_sep == NULL) {
+        return -1;
+    }
+
+    recipient = first_sep + 1;
+    recipient_len = (size_t)(second_sep - recipient);
+    message = second_sep + 1;
+    message_len = (size_t)((body_end - 1) - message);
+
+    if (!validate_msg_recipient(recipient, recipient_len)) {
+        if (send_protocol_err_v1(client->fd, 3U, "Illegal character") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
+    if (!validate_user_message(message, message_len)) {
+        if (message_len > MAX_USER_MESSAGE_LEN) {
+            if (send_protocol_err_v1(client->fd, 4U, "Too long") != 0) {
+                return -1;
+            }
+            return 0;
+        }
+
+        if (send_protocol_err_v1(client->fd, 3U, "Illegal character") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
     return 0;
 }
 

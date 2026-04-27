@@ -246,6 +246,46 @@ static void remove_client_fd(struct pollfd *pfds, nfds_t *count, nfds_t idx) {
 }
 
 /**
+ * Clear per-client session state before removing the client entry.
+ *
+ * @param client Client record to clear.
+ */
+static void clear_client_state(client_t *client) {
+    client->is_authenticated = 0;
+    client->screen_name[0] = '\0';
+    client->status[0] = '\0';
+    client->input_len = 0;
+}
+
+/**
+ * Disconnect and remove a client by poll-array index.
+ *
+ * This removes both the client registry entry and the pollfd entry in a
+ * synchronized way. The client's screen name/state is cleared first so the
+ * name is immediately available for reuse.
+ *
+ * @param pfds Pollfd array.
+ * @param poll_count Active pollfd entry count.
+ * @param clients Client registry.
+ * @param client_count Active client count.
+ * @param poll_idx Index in pollfd array (must be > 0 for clients).
+ */
+static void disconnect_client_at_poll_index(
+    struct pollfd *pfds, nfds_t *poll_count, client_t *clients, nfds_t *client_count, nfds_t poll_idx
+) {
+    nfds_t client_idx;
+
+    if (poll_idx == 0) {
+        return;
+    }
+
+    client_idx = poll_idx - 1;
+    clear_client_state(&clients[client_idx]);
+    remove_client(clients, client_count, client_idx);
+    remove_client_fd(pfds, poll_count, poll_idx);
+}
+
+/**
  * Register a newly accepted client in both poll and client registries.
  *
  * @param pfds Pointer to pollfd array pointer.
@@ -1409,8 +1449,7 @@ static int run_poll_loop(int listen_fd) {
 
             if ((pfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
                 /* Close dead clients; decrement i because entries shift left. */
-                remove_client(clients, &client_count, i - 1);
-                remove_client_fd(pfds, &count, i);
+                disconnect_client_at_poll_index(pfds, &count, clients, &client_count, i);
                 i -= 1;
                 continue;
             }
@@ -1425,16 +1464,14 @@ static int run_poll_loop(int listen_fd) {
                     return -1;
                 }
                 if (read_result > 0) {
-                    remove_client(clients, &client_count, i - 1);
-                    remove_client_fd(pfds, &count, i);
+                    disconnect_client_at_poll_index(pfds, &count, clients, &client_count, i);
                     i -= 1;
                     continue;
                 }
 
                 /* Fatal parse/dispatch violations (including ERR 0) close this client immediately. */
                 if (validate_and_consume_frames(client, clients, client_count) != 0) {
-                    remove_client(clients, &client_count, i - 1);
-                    remove_client_fd(pfds, &count, i);
+                    disconnect_client_at_poll_index(pfds, &count, clients, &client_count, i);
                     i -= 1;
                     continue;
                 }

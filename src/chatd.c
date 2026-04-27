@@ -1032,7 +1032,7 @@ static int handle_msg(
 }
 
 /**
- * Handle WHO queries for a specific user.
+ * Handle WHO queries for a specific user or for #all.
  *
  * @param client Requesting client.
  * @param clients Client registry.
@@ -1049,6 +1049,11 @@ static int handle_who(
     size_t target_len;
     const client_t *target_client;
     char response_body[128];
+    char line[128];
+    char *room_response;
+    size_t room_len;
+    size_t line_len;
+    nfds_t i;
     int n;
 
     if (body_len < 1) {
@@ -1064,11 +1069,60 @@ static int handle_who(
         return -1;
     }
 
-    /*
-     * Step 23 implements single-user WHO only; room-listing response
-     * for WHO #all is added in step 24.
-     */
     if (target_len == sizeof(room_all) - 1 && memcmp(target, room_all, sizeof(room_all) - 1) == 0) {
+        room_response = malloc((size_t)MAX_BODY_LENGTH_FIELD + 1);
+        if (room_response == NULL) {
+            return -1;
+        }
+        room_response[0] = '\0';
+        room_len = 0;
+
+        for (i = 0; i < client_count; i++) {
+            if (!clients[i].is_authenticated) {
+                continue;
+            }
+
+            if (clients[i].status[0] != '\0') {
+                n = snprintf(line, sizeof(line), "%s: %s", clients[i].screen_name, clients[i].status);
+            } else {
+                n = snprintf(line, sizeof(line), "%s", clients[i].screen_name);
+            }
+            if (n <= 0 || (size_t)n >= sizeof(line)) {
+                free(room_response);
+                return -1;
+            }
+
+            line_len = (size_t)n;
+            if (room_len > 0) {
+                if (room_len + 1 > (size_t)MAX_BODY_LENGTH_FIELD) {
+                    free(room_response);
+                    if (send_protocol_err_v1(client->fd, 4U, "Too long") != 0) {
+                        return -1;
+                    }
+                    return 0;
+                }
+                room_response[room_len] = '\n';
+                room_len += 1;
+            }
+
+            if (room_len + line_len > (size_t)MAX_BODY_LENGTH_FIELD) {
+                free(room_response);
+                if (send_protocol_err_v1(client->fd, 4U, "Too long") != 0) {
+                    return -1;
+                }
+                return 0;
+            }
+            memcpy(room_response + room_len, line, line_len);
+            room_len += line_len;
+            room_response[room_len] = '\0';
+        }
+
+        if (send_protocol_msg_v1(client->fd, "#all", client->screen_name, room_response) != 0) {
+            free(room_response);
+            return -1;
+        }
+
+        free(room_response);
         return 0;
     }
 

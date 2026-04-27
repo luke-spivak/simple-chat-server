@@ -566,6 +566,16 @@ int send_protocol_err_v1(int fd, unsigned int error_code, const char *explanatio
 }
 
 /**
+ * Send protocol error 0 ("Unreadable") to a client.
+ *
+ * @param client Destination client.
+ * @return 0 on success, -1 on send failure.
+ */
+static int send_unreadable_error(const client_t *client) {
+    return send_protocol_err_v1(client->fd, 0U, "Unreadable");
+}
+
+/**
  * Return whether a byte is legal in a screen name.
  *
  * Allowed characters: letters, digits, hyphen, underscore.
@@ -731,11 +741,13 @@ static int handle_nam(client_t *client, const client_t *clients, nfds_t client_c
     size_t name_len;
 
     if (body_len < 1) {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
     /* NAM has one field, so the body format is "<screen_name>|". */
     if (body[body_len - 1] != '|') {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
@@ -815,11 +827,13 @@ static int handle_set(
     size_t status_len;
 
     if (body_len < 1) {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
     /* SET has one field, so the body format is "<status>|". */
     if (body[body_len - 1] != '|') {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
@@ -945,15 +959,18 @@ static int handle_msg(
     const char *effective_sender;
 
     if (body_len < 1) {
+        (void)send_unreadable_error(client);
         return -1;
     }
     if (body[body_len - 1] != '|') {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
     body_end = body + body_len;
     first_sep = memchr(body, '|', body_len);
     if (first_sep == NULL) {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
@@ -963,6 +980,7 @@ static int handle_msg(
      */
     second_sep = memchr(first_sep + 1, '|', (size_t)((body_end - 1) - (first_sep + 1)));
     if (second_sep == NULL) {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
@@ -1057,15 +1075,18 @@ static int handle_who(
     int n;
 
     if (body_len < 1) {
+        (void)send_unreadable_error(client);
         return -1;
     }
     if (body[body_len - 1] != '|') {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
     target = body;
     target_len = body_len - 1;
     if (target_len == 0) {
+        (void)send_unreadable_error(client);
         return -1;
     }
 
@@ -1183,6 +1204,7 @@ static int dispatch_client_command(
         return handle_who(client, clients, client_count, body, body_len);
     }
 
+    (void)send_unreadable_error(client);
     return -1;
 }
 
@@ -1224,15 +1246,23 @@ static int validate_and_consume_frames(client_t *client, const client_t *clients
             return 0;
         }
         if (header_parse_result == HEADER_PARSE_INVALID) {
+            (void)send_unreadable_error(client);
+            return -1;
+        }
+
+        if (header.version != 1U) {
+            (void)send_unreadable_error(client);
             return -1;
         }
 
         if (header.header_len > sizeof(client->input_buffer)) {
+            (void)send_unreadable_error(client);
             return -1;
         }
 
         body_len = (size_t)header.body_len;
         if (body_len == 0 || body_len > sizeof(client->input_buffer) - header.header_len) {
+            (void)send_unreadable_error(client);
             return -1;
         }
 
@@ -1242,6 +1272,7 @@ static int validate_and_consume_frames(client_t *client, const client_t *clients
         }
 
         if (client->input_buffer[total_frame_len - 1] != '|') {
+            (void)send_unreadable_error(client);
             return -1;
         }
 

@@ -881,6 +881,38 @@ static int broadcast_room_message(
 }
 
 /**
+ * Find an authenticated client by exact screen name.
+ *
+ * @param clients Client registry.
+ * @param client_count Number of active clients.
+ * @param name Screen name bytes.
+ * @param name_len Screen name length in bytes.
+ * @return Matching client pointer, or NULL if no active user has that name.
+ */
+static const client_t *find_client_by_name(
+    const client_t *clients, nfds_t client_count, const char *name, size_t name_len
+) {
+    nfds_t i;
+    size_t existing_len;
+
+    for (i = 0; i < client_count; i++) {
+        if (!clients[i].is_authenticated) {
+            continue;
+        }
+
+        existing_len = strlen(clients[i].screen_name);
+        if (existing_len != name_len) {
+            continue;
+        }
+        if (memcmp(clients[i].screen_name, name, name_len) == 0) {
+            return &clients[i];
+        }
+    }
+
+    return NULL;
+}
+
+/**
  * Validate MSG payload constraints and handle #all room delivery.
  *
  * @param client Requesting client.
@@ -901,7 +933,9 @@ static int handle_msg(
     const char *body_end;
     size_t recipient_len;
     size_t message_len;
+    char recipient_field[MAX_SCREEN_NAME_LEN + 1];
     char message_field[MAX_USER_MESSAGE_LEN + 1];
+    const client_t *target_client;
 
     if (body_len < 1) {
         return -1;
@@ -951,12 +985,29 @@ static int handle_msg(
         return 0;
     }
 
+    memcpy(message_field, message, message_len);
+    message_field[message_len] = '\0';
+
     if (recipient_len == sizeof(room_all) - 1 && memcmp(recipient, room_all, sizeof(room_all) - 1) == 0) {
-        memcpy(message_field, message, message_len);
-        message_field[message_len] = '\0';
         if (broadcast_room_message(clients, client_count, client->screen_name, message_field) != 0) {
             return -1;
         }
+        return 0;
+    }
+
+    memcpy(recipient_field, recipient, recipient_len);
+    recipient_field[recipient_len] = '\0';
+
+    target_client = find_client_by_name(clients, client_count, recipient, recipient_len);
+    if (target_client == NULL) {
+        if (send_protocol_err_v1(client->fd, 2U, "Unknown recipient") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
+    if (send_protocol_msg_v1(target_client->fd, client->screen_name, recipient_field, message_field) != 0) {
+        return -1;
     }
 
     return 0;

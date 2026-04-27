@@ -851,14 +851,49 @@ static int handle_set(
 }
 
 /**
- * Validate MSG payload constraints.
+ * Broadcast a room message to authenticated #all members.
+ *
+ * @param clients Client registry.
+ * @param client_count Number of active clients.
+ * @param sender Sender screen name.
+ * @param message Message body.
+ * @return 0 on success, -1 if message formatting/sending fails critically.
+ */
+static int broadcast_room_message(
+    const client_t *clients, nfds_t client_count, const char *sender, const char *message
+) {
+    static const char room_all[] = "#all";
+    nfds_t i;
+
+    for (i = 0; i < client_count; i++) {
+        if (!clients[i].is_authenticated) {
+            continue;
+        }
+
+        /*
+         * Best-effort fanout to room members; one stale socket should not
+         * block delivery to others.
+         */
+        (void)send_protocol_msg_v1(clients[i].fd, sender, room_all, message);
+    }
+
+    return 0;
+}
+
+/**
+ * Validate MSG payload constraints and handle #all room delivery.
  *
  * @param client Requesting client.
+ * @param clients Client registry.
+ * @param client_count Number of active clients.
  * @param body Message body bytes, including trailing delimiter.
  * @param body_len Length of body in bytes.
  * @return 0 on success, -1 on protocol/processing failure.
  */
-static int handle_msg(client_t *client, const char *body, size_t body_len) {
+static int handle_msg(
+    client_t *client, const client_t *clients, nfds_t client_count, const char *body, size_t body_len
+) {
+    static const char room_all[] = "#all";
     const char *first_sep;
     const char *second_sep;
     const char *recipient;
@@ -866,6 +901,7 @@ static int handle_msg(client_t *client, const char *body, size_t body_len) {
     const char *body_end;
     size_t recipient_len;
     size_t message_len;
+    char message_field[MAX_USER_MESSAGE_LEN + 1];
 
     if (body_len < 1) {
         return -1;
@@ -915,6 +951,14 @@ static int handle_msg(client_t *client, const char *body, size_t body_len) {
         return 0;
     }
 
+    if (recipient_len == sizeof(room_all) - 1 && memcmp(recipient, room_all, sizeof(room_all) - 1) == 0) {
+        memcpy(message_field, message, message_len);
+        message_field[message_len] = '\0';
+        if (broadcast_room_message(clients, client_count, client->screen_name, message_field) != 0) {
+            return -1;
+        }
+    }
+
     return 0;
 }
 
@@ -957,7 +1001,7 @@ static int dispatch_client_command(
         return handle_set(client, clients, client_count, body, body_len);
     }
     if (strcmp(header->code, "MSG") == 0) {
-        return handle_msg(client, body, body_len);
+        return handle_msg(client, clients, client_count, body, body_len);
     }
     if (strcmp(header->code, "WHO") == 0) {
         return handle_who(client, body, body_len);

@@ -1240,6 +1240,10 @@ static int dispatch_client_command(
     const char *body,
     size_t body_len
 ) {
+    if (!client->is_authenticated && strcmp(header->code, "NAM") != 0) {
+        return fatal_unreadable(client);
+    }
+
     if (strcmp(header->code, "NAM") == 0) {
         return handle_nam(client, clients, client_count, body, body_len);
     }

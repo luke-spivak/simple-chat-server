@@ -231,12 +231,38 @@ static void test_fatal_unreadable_err0(void) {
     close(fds[1]);
 }
 
+static void assert_unauthenticated_command_is_fatal(const char *frame) {
+    int fds[2];
+    client_t clients[1];
+    int rc;
+
+    assert_true(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0, "socketpair should succeed");
+    memset(&clients[0], 0, sizeof(clients[0]));
+    clients[0].fd = fds[0];
+
+    queue_client_frame(&clients[0], frame);
+    rc = validate_and_consume_frames(&clients[0], clients, 1);
+    assert_true(rc == -1, "pre-login non-NAM command should be fatal");
+    expect_reply(fds[1], "ERR", "0|Unreadable|");
+    assert_true(clients[0].is_authenticated == 0, "pre-login command must not authenticate client");
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void test_unauthenticated_commands_are_rejected(void) {
+    assert_unauthenticated_command_is_fatal("1|SET|6|happy|");
+    assert_unauthenticated_command_is_fatal("1|MSG|9||#all|hi|");
+    assert_unauthenticated_command_is_fatal("1|WHO|5|#all|");
+}
+
 int main(void) {
     test_who_specific_with_status();
     test_who_specific_no_status();
     test_who_all_listing();
     test_recoverable_error_then_success();
     test_fatal_unreadable_err0();
+    test_unauthenticated_commands_are_rejected();
 
     printf("PASS: %d WHO/error integration assertions\n", tests_run);
     return 0;

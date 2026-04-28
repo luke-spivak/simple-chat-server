@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic
 
 TARGET := chatd
-SRC := src/chatd.c
+SRC := src/chatd.c src/protocol.c
 OBJ := $(SRC:.c=.o)
 TEST_BIN := tests/test_protocol
 TEST_SRC := tests/test_protocol.c
@@ -24,16 +24,16 @@ src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TEST_BIN): $(TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
 
 $(INTEG_TEST_BIN): $(INTEG_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
 
 $(CHAT_INTEG_TEST_BIN): $(CHAT_INTEG_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
 
 $(WHO_ERR_INTEG_TEST_BIN): $(WHO_ERR_INTEG_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
 
 test: all $(TEST_BIN) $(INTEG_TEST_BIN) $(CHAT_INTEG_TEST_BIN) $(WHO_ERR_INTEG_TEST_BIN)
 	./$(TEST_BIN)

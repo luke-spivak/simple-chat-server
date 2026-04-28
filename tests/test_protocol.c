@@ -3,14 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/*
- * Include production code directly so we can unit-test internal helpers
- */
-#define static
-#define main chatd_program_main
-#include "../src/chatd.c"
-#undef main
-#undef static
+#include "../src/protocol.h"
 
 static int tests_run = 0;
 
@@ -52,16 +45,11 @@ static void test_build_protocol_message_v1_invalid_code(void) {
 }
 
 static void test_parse_protocol_header_complete(void) {
-    client_t client;
     protocol_header_t header;
     const char *frame = "1|MSG|13|#all|#all|hi|";
     int rc;
 
-    memset(&client, 0, sizeof(client));
-    memcpy(client.input_buffer, frame, strlen(frame));
-    client.input_len = strlen(frame);
-
-    rc = parse_protocol_header(&client, &header);
+    rc = parse_protocol_header(frame, strlen(frame), &header);
     assert_true(rc == HEADER_PARSE_COMPLETE, "complete header should parse");
     assert_true(header.version == 1U, "parsed version should be 1");
     assert_true(strcmp(header.code, "MSG") == 0, "parsed code should be MSG");
@@ -70,44 +58,29 @@ static void test_parse_protocol_header_complete(void) {
 }
 
 static void test_parse_protocol_header_incomplete(void) {
-    client_t client;
     protocol_header_t header;
     const char *prefix = "1|MSG|13";
     int rc;
 
-    memset(&client, 0, sizeof(client));
-    memcpy(client.input_buffer, prefix, strlen(prefix));
-    client.input_len = strlen(prefix);
-
-    rc = parse_protocol_header(&client, &header);
+    rc = parse_protocol_header(prefix, strlen(prefix), &header);
     assert_true(rc == HEADER_PARSE_INCOMPLETE, "missing trailing header delimiter should be incomplete");
 }
 
 static void test_parse_protocol_header_invalid_code(void) {
-    client_t client;
     protocol_header_t header;
     const char *frame = "1|MS|4|Bob|";
     int rc;
 
-    memset(&client, 0, sizeof(client));
-    memcpy(client.input_buffer, frame, strlen(frame));
-    client.input_len = strlen(frame);
-
-    rc = parse_protocol_header(&client, &header);
+    rc = parse_protocol_header(frame, strlen(frame), &header);
     assert_true(rc == HEADER_PARSE_INVALID, "non-3-char message code should be invalid");
 }
 
 static void test_parse_protocol_header_invalid_length_field(void) {
-    client_t client;
     protocol_header_t header;
     const char *frame = "1|MSG|A|Bob|";
     int rc;
 
-    memset(&client, 0, sizeof(client));
-    memcpy(client.input_buffer, frame, strlen(frame));
-    client.input_len = strlen(frame);
-
-    rc = parse_protocol_header(&client, &header);
+    rc = parse_protocol_header(frame, strlen(frame), &header);
     assert_true(rc == HEADER_PARSE_INVALID, "non-numeric length field should be invalid");
 }
 

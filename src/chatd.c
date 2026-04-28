@@ -1196,6 +1196,19 @@ static int handle_who(
         return 0;
     }
 
+    if (target_len > MAX_SCREEN_NAME_LEN) {
+        if (send_protocol_err_v1(client->fd, 4U, "Too long") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+    if (!validate_screen_name(target, target_len)) {
+        if (send_protocol_err_v1(client->fd, 3U, "Illegal character") != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
     target_client = find_client_by_name(clients, client_count, target, target_len);
     if (target_client == NULL) {
         if (send_protocol_err_v1(client->fd, 2U, "Unknown recipient") != 0) {

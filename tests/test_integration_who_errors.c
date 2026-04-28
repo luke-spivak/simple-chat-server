@@ -214,6 +214,45 @@ static void test_recoverable_error_then_success(void) {
     close(fds[1]);
 }
 
+static void test_who_invalid_targets(void) {
+    int fds[2];
+    client_t clients[1];
+    char long_name[40];
+    char long_frame[128];
+    int n;
+    int rc;
+
+    assert_true(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0, "socketpair should succeed");
+    init_authenticated_client(&clients[0], fds[0], "Alice", "");
+
+    queue_client_frame(&clients[0], "1|WHO|4|Bo!|");
+    rc = validate_and_consume_frames(&clients[0], clients, 1);
+    assert_true(rc == 0, "illegal-character WHO target should be recoverable");
+    expect_reply(fds[1], "ERR", "3|Illegal character|");
+
+    queue_client_frame(&clients[0], "1|WHO|6|Bob|x|");
+    rc = validate_and_consume_frames(&clients[0], clients, 1);
+    assert_true(rc == 0, "delimiter in WHO target should be recoverable illegal character");
+    expect_reply(fds[1], "ERR", "3|Illegal character|");
+
+    memset(long_name, 'a', 33);
+    long_name[33] = '\0';
+    n = snprintf(long_frame, sizeof(long_frame), "1|WHO|34|%s|", long_name);
+    assert_true(n > 0 && (size_t)n < sizeof(long_frame), "too-long WHO frame should fit test buffer");
+    queue_client_frame(&clients[0], long_frame);
+    rc = validate_and_consume_frames(&clients[0], clients, 1);
+    assert_true(rc == 0, "too-long WHO target should be recoverable");
+    expect_reply(fds[1], "ERR", "4|Too long|");
+
+    queue_client_frame(&clients[0], "1|WHO|4|Zed|");
+    rc = validate_and_consume_frames(&clients[0], clients, 1);
+    assert_true(rc == 0, "valid missing WHO target should still be unknown recipient");
+    expect_reply(fds[1], "ERR", "2|Unknown recipient|");
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
 static void test_fatal_unreadable_err0(void) {
     int fds[2];
     client_t clients[1];
@@ -261,6 +300,7 @@ int main(void) {
     test_who_specific_no_status();
     test_who_all_listing();
     test_recoverable_error_then_success();
+    test_who_invalid_targets();
     test_fatal_unreadable_err0();
     test_unauthenticated_commands_are_rejected();
 

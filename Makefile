@@ -2,7 +2,8 @@ CC ?= cc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic
 
 TARGET := chatd
-SRC := src/chatd.c src/protocol.c
+SRC := src/chatd.c src/client.c src/protocol.c
+TEST_SUPPORT_SRC := src/client.c src/protocol.c
 OBJ := $(SRC:.c=.o)
 TEST_BIN := tests/test_protocol
 TEST_SRC := tests/test_protocol.c
@@ -24,16 +25,16 @@ src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TEST_BIN): $(TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
+	$(CC) $(CFLAGS) -o $@ $< $(TEST_SUPPORT_SRC)
 
 $(INTEG_TEST_BIN): $(INTEG_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
+	$(CC) $(CFLAGS) -o $@ $< $(TEST_SUPPORT_SRC)
 
 $(CHAT_INTEG_TEST_BIN): $(CHAT_INTEG_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
+	$(CC) $(CFLAGS) -o $@ $< $(TEST_SUPPORT_SRC)
 
 $(WHO_ERR_INTEG_TEST_BIN): $(WHO_ERR_INTEG_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $< src/protocol.c
+	$(CC) $(CFLAGS) -o $@ $< $(TEST_SUPPORT_SRC)
 
 test: all $(TEST_BIN) $(INTEG_TEST_BIN) $(CHAT_INTEG_TEST_BIN) $(WHO_ERR_INTEG_TEST_BIN)
 	./$(TEST_BIN)

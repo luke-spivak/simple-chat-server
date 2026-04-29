@@ -1,0 +1,26 @@
+This archive contains two programs for use on the iLab.
+
+client - a sample client demonstrating a possible user agent
+raw - a test client that allows you to send raw protocol messages and 
+      observe the respose from your server
+
+
+Usage:
+    client <name> <host> <port>
+
+Will connect to the chat server at host:port and attempt to join the chat
+using the given name. (We rely on the server to validate names.)
+
+Once running, client will print incoming messages from the server, using
+formatting and indentation to distinguish (1) messages sent by the
+server itself, (2) private messages from other users, (3) general messages
+sent by other users, and (4) errors sent by the server.
+
+To send a regular message, type it and press enter.
+
+To set your status, type /<status>
+
+To query all users and their statuses, type ?
+To query a specific user, type ?<name>
+
+To send a private message to a user, type @<name> <message>

@@ -121,7 +121,7 @@ int parse_protocol_header(const char *buffer, size_t buffer_len, protocol_header
  * @return 0 on success, -1 on invalid input or allocation failure.
  */
 int build_protocol_message_v1(
-    const char code[4],
+    const char *code,
     const char *const *fields,
     size_t field_count,
     char **out_message,
@@ -237,7 +237,7 @@ static int send_all_bytes(int fd, const char *buffer, size_t len) {
  * @param field_count Number of message fields.
  * @return 0 on success, -1 on serialization/send failure.
  */
-int send_protocol_message_v1(int fd, const char code[4], const char *const *fields, size_t field_count) {
+int send_protocol_message_v1(int fd, const char *code, const char *const *fields, size_t field_count) {
     char *message;
     size_t message_len;
     int rc;

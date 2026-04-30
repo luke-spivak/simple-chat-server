@@ -32,14 +32,6 @@ Start the server on a chosen port:
 ./chatd <port>
 ```
 
-Example:
-
-```sh
-./chatd 5000
-```
-
-The server runs until interrupted.
-
 ## Test Execution
 
 Run all automated tests:

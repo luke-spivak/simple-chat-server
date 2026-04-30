@@ -5,11 +5,6 @@
 
 /**
  * Ensure the client array has room for at least one more entry.
- *
- * @param clients Pointer to the client array pointer.
- * @param cap Pointer to current client array capacity.
- * @param needed Minimum required capacity.
- * @return 0 on success, -1 on allocation failure.
  */
 static int ensure_client_capacity(client_t **clients, nfds_t *cap, nfds_t needed) {
     nfds_t new_cap;
@@ -36,12 +31,6 @@ static int ensure_client_capacity(client_t **clients, nfds_t *cap, nfds_t needed
 
 /**
  * Add a new client record to the client registry.
- *
- * @param clients Pointer to the client array pointer.
- * @param count Pointer to number of active clients.
- * @param cap Pointer to client array capacity.
- * @param fd Accepted client socket.
- * @return 0 on success, -1 on allocation failure.
  */
 int add_client(client_t **clients, nfds_t *count, nfds_t *cap, int fd) {
     client_t *client;
@@ -61,10 +50,6 @@ int add_client(client_t **clients, nfds_t *count, nfds_t *cap, int fd) {
 
 /**
  * Remove a client record from the client registry.
- *
- * @param clients Client array.
- * @param count Pointer to number of active clients.
- * @param idx Index to remove.
  */
 void remove_client(client_t *clients, nfds_t *count, nfds_t idx) {
     nfds_t i;
@@ -77,8 +62,6 @@ void remove_client(client_t *clients, nfds_t *count, nfds_t idx) {
 
 /**
  * Clear per-client session state before removing the client entry.
- *
- * @param client Client record to clear.
  */
 void clear_client_state(client_t *client) {
     client->is_authenticated = 0;
@@ -89,13 +72,6 @@ void clear_client_state(client_t *client) {
 
 /**
  * Return whether a name is already assigned to another connected client.
- *
- * @param clients Client registry.
- * @param client_count Number of active clients.
- * @param self Client requesting the name.
- * @param name Candidate name bytes.
- * @param name_len Candidate name length.
- * @return 1 if the name is in use by another client, 0 otherwise.
  */
 int is_name_in_use(
     const client_t *clients, nfds_t client_count, const client_t *self, const char *name, size_t name_len
@@ -125,12 +101,6 @@ int is_name_in_use(
 
 /**
  * Find an authenticated client by exact screen name.
- *
- * @param clients Client registry.
- * @param client_count Number of active clients.
- * @param name Screen name bytes.
- * @param name_len Screen name length in bytes.
- * @return Matching client pointer, or NULL if no active user has that name.
  */
 const client_t *find_client_by_name(
     const client_t *clients, nfds_t client_count, const char *name, size_t name_len

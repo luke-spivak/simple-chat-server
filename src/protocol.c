@@ -10,12 +10,6 @@
 
 /**
  * Parse an unsigned decimal ASCII field from a bounded byte span.
- *
- * @param field Raw field bytes (not necessarily NUL-terminated).
- * @param field_len Number of bytes in the field.
- * @param max_value Maximum permitted value.
- * @param out_value Parsed value on success.
- * @return 0 on success, -1 on invalid/non-decimal/out-of-range input.
  */
 static int parse_decimal_field(
     const char *field, size_t field_len, unsigned int max_value, unsigned int *out_value
@@ -47,13 +41,6 @@ static int parse_decimal_field(
 
 /**
  * Parse the protocol header fields (version|code|length|) from buffered input.
- *
- * @param buffer Input bytes containing zero or more protocol frames.
- * @param buffer_len Number of bytes available in buffer.
- * @param out_header Parsed header values on complete success.
- * @return HEADER_PARSE_COMPLETE if all three header fields are available and valid,
- *         HEADER_PARSE_INCOMPLETE if more bytes are needed,
- *         HEADER_PARSE_INVALID if available bytes violate header syntax.
  */
 int parse_protocol_header(const char *buffer, size_t buffer_len, protocol_header_t *out_header) {
     const char *cursor;
@@ -112,13 +99,6 @@ int parse_protocol_header(const char *buffer, size_t buffer_len, protocol_header
  * Output format: 1|CODE|LEN|field1|field2|...|
  * LEN is the number of bytes after the length delimiter and includes
  * the trailing '|' after the final field.
- *
- * @param code Three-character protocol message code.
- * @param fields Message body fields to serialize.
- * @param field_count Number of entries in fields.
- * @param out_message Allocated output buffer on success (caller frees).
- * @param out_len Output byte length on success.
- * @return 0 on success, -1 on invalid input or allocation failure.
  */
 int build_protocol_message_v1(
     const char *code,
@@ -202,11 +182,6 @@ int build_protocol_message_v1(
 
 /**
  * Send an exact byte sequence to a socket.
- *
- * @param fd Socket file descriptor.
- * @param buffer Byte buffer to write.
- * @param len Number of bytes to send.
- * @return 0 on success, -1 on send failure.
  */
 static int send_all_bytes(int fd, const char *buffer, size_t len) {
     size_t sent_total;
@@ -230,12 +205,6 @@ static int send_all_bytes(int fd, const char *buffer, size_t len) {
 
 /**
  * Serialize and send a protocol v1 message.
- *
- * @param fd Destination socket file descriptor.
- * @param code Three-character protocol message code.
- * @param fields Message body fields.
- * @param field_count Number of message fields.
- * @return 0 on success, -1 on serialization/send failure.
  */
 int send_protocol_message_v1(int fd, const char *code, const char *const *fields, size_t field_count) {
     char *message;
@@ -255,12 +224,6 @@ int send_protocol_message_v1(int fd, const char *code, const char *const *fields
 
 /**
  * Send a protocol MSG frame (sender, recipient, body).
- *
- * @param fd Destination socket file descriptor.
- * @param sender Message sender field.
- * @param recipient Message recipient field.
- * @param body Message body field.
- * @return 0 on success, -1 on serialization/send failure.
  */
 int send_protocol_msg_v1(int fd, const char *sender, const char *recipient, const char *body) {
     const char *fields[3];
@@ -273,11 +236,6 @@ int send_protocol_msg_v1(int fd, const char *sender, const char *recipient, cons
 
 /**
  * Send a protocol ERR frame (numeric error code, explanation).
- *
- * @param fd Destination socket file descriptor.
- * @param error_code Numeric protocol error code.
- * @param explanation Human-readable error explanation.
- * @return 0 on success, -1 on serialization/send failure.
  */
 int send_protocol_err_v1(int fd, unsigned int error_code, const char *explanation) {
     char code_field[16];

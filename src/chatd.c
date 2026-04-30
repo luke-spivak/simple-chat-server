@@ -14,10 +14,6 @@
 
 /**
  * Parse a CLI port string into a validated TCP port number.
- *
- * @param text Input string expected to contain only decimal digits.
- * @param out_port Output pointer for the parsed port on success.
- * @return 0 on success, -1 on parse/validation failure.
  */
 static int parse_port(const char *text, unsigned short *out_port) {
     char *end = NULL;
@@ -41,9 +37,6 @@ static int parse_port(const char *text, unsigned short *out_port) {
  *
  * The socket is configured with SO_REUSEADDR, bound to INADDR_ANY:port,
  * and moved to listening state.
- *
- * @param port Local TCP port (host byte order).
- * @return Listening fd on success, -1 on error.
  */
 static int setup_listen_socket(unsigned short port) {
     int fd;
@@ -81,11 +74,6 @@ static int setup_listen_socket(unsigned short port) {
 
 /**
  * Ensure the pollfd array has room for at least one more entry.
- *
- * @param pfds Pointer to the pollfd array pointer.
- * @param cap Pointer to current array capacity.
- * @param needed Minimum required capacity.
- * @return 0 on success, -1 on allocation failure.
  */
 static int ensure_poll_capacity(struct pollfd **pfds, nfds_t *cap, nfds_t needed) {
     nfds_t new_cap;
@@ -112,13 +100,6 @@ static int ensure_poll_capacity(struct pollfd **pfds, nfds_t *cap, nfds_t needed
 
 /**
  * Add a file descriptor to the poll set.
- *
- * @param pfds Pointer to the pollfd array pointer.
- * @param count Pointer to number of active pollfd entries.
- * @param cap Pointer to pollfd array capacity.
- * @param fd File descriptor to add.
- * @param events Poll events to monitor.
- * @return 0 on success, -1 on allocation failure.
  */
 static int add_poll_fd(struct pollfd **pfds, nfds_t *count, nfds_t *cap, int fd, short events) {
     if (ensure_poll_capacity(pfds, cap, *count + 1) != 0) {
@@ -134,10 +115,6 @@ static int add_poll_fd(struct pollfd **pfds, nfds_t *count, nfds_t *cap, int fd,
 
 /**
  * Remove a client file descriptor from the poll set and close it.
- *
- * @param pfds Pollfd array.
- * @param count Pointer to number of active pollfd entries.
- * @param idx Index to remove.
  */
 static void remove_client_fd(struct pollfd *pfds, nfds_t *count, nfds_t idx) {
     nfds_t i;
@@ -155,12 +132,6 @@ static void remove_client_fd(struct pollfd *pfds, nfds_t *count, nfds_t idx) {
  * This removes both the client registry entry and the pollfd entry in a
  * synchronized way. The client's screen name/state is cleared first so the
  * name is immediately available for reuse.
- *
- * @param pfds Pollfd array.
- * @param poll_count Active pollfd entry count.
- * @param clients Client registry.
- * @param client_count Active client count.
- * @param poll_idx Index in pollfd array (must be > 0 for clients).
  */
 static void disconnect_client_at_poll_index(
     struct pollfd *pfds, nfds_t *poll_count, client_t *clients, nfds_t *client_count, nfds_t poll_idx
@@ -179,15 +150,6 @@ static void disconnect_client_at_poll_index(
 
 /**
  * Register a newly accepted client in both poll and client registries.
- *
- * @param pfds Pointer to pollfd array pointer.
- * @param poll_count Pointer to active poll entries count.
- * @param poll_cap Pointer to pollfd capacity.
- * @param clients Pointer to client array pointer.
- * @param client_count Pointer to active client count.
- * @param client_cap Pointer to client array capacity.
- * @param fd Accepted client socket.
- * @return 0 on success, -1 on allocation failure.
  */
 static int register_client(
     struct pollfd **pfds,
@@ -213,9 +175,6 @@ static int register_client(
 
 /**
  * Remove a consumed byte prefix from a client's input buffer.
- *
- * @param client Client record whose buffer is updated.
- * @param consumed Number of leading bytes to remove.
  */
 static void consume_client_input(client_t *client, size_t consumed) {
     if (consumed >= client->input_len) {
@@ -232,9 +191,6 @@ static void consume_client_input(client_t *client, size_t consumed) {
  *
  * A frame is considered complete when the declared body length is present.
  * The final byte of that body must be a '|' delimiter.
- *
- * @param client Client record whose input buffer is validated.
- * @return 0 if buffered data is valid so far, -1 on framing/dispatch violation.
  */
 static int validate_and_consume_frames(client_t *client, const client_t *clients, nfds_t client_count) {
     protocol_header_t header;
@@ -285,10 +241,6 @@ static int validate_and_consume_frames(client_t *client, const client_t *clients
 
 /**
  * Read available bytes from a client socket into its input buffer.
- *
- * @param client Client record to update.
- * @return 0 on successful read/no-op, 1 if client should be disconnected,
- *         -1 on fatal read error.
  */
 static int read_client_input(client_t *client) {
     size_t free_space;
@@ -321,9 +273,6 @@ static int read_client_input(client_t *client) {
  *
  * This loop monitors the listening socket and accepts new clients,
  * registering each accepted socket in the poll set and buffering input.
- *
- * @param listen_fd Listening socket file descriptor.
- * @return 0 on clean shutdown, -1 on fatal polling error.
  */
 static int run_poll_loop(int listen_fd) {
     struct pollfd *pfds;
@@ -439,10 +388,6 @@ static int run_poll_loop(int listen_fd) {
  * Program entrypoint for chatd.
  *
  * Expects exactly one argument: a TCP port number.
- *
- * @param argc Argument count.
- * @param argv Argument vector.
- * @return 0 on success, non-zero on usage/setup/runtime errors.
  */
 int main(int argc, char **argv) {
     int listen_fd;

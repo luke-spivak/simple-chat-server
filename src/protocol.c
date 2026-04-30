@@ -154,13 +154,13 @@ int build_protocol_message_v1(
         return -1;
     }
 
-    if ((size_t)header_len > SIZE_MAX - body_len) {
+    if ((size_t)header_len > SIZE_MAX - body_len - 1) {
         errno = EOVERFLOW;
         return -1;
     }
     total_len = (size_t)header_len + body_len;
 
-    message = malloc(total_len);
+    message = malloc(total_len + 1);
     if (message == NULL) {
         return -1;
     }
@@ -174,6 +174,7 @@ int build_protocol_message_v1(
         message[offset] = '|';
         offset += 1;
     }
+    message[offset] = '\0';
 
     *out_message = message;
     *out_len = total_len;

@@ -1,7 +1,4 @@
-Name: Luke Spivak
-NetID: ljs302
-
-Simple Chat Server (P4)
+# Simple Chat Server
 
 This project implements `chatd`, a simple TCP chat server for the CS 214 P4
 protocol. The server accepts clients, processes protocol frames, and supports:
